@@ -7,16 +7,46 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\SalesSnapshot;
 use App\Models\Shift;
+use App\Models\Attendance;
 use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
 
 class LumosController extends Controller
 {
+    private function checkActiveShift($user)
+    {
+        $todayAttendance = Attendance::where('employee_id', $user->employee->id)
+            ->whereDate('date', date('Y-m-d'))
+            ->first();
+
+        if (!$todayAttendance || !$todayAttendance->check_in) {
+            return 'Akses dibatasi. Anda harus melakukan absensi masuk (Clock In) terlebih dahulu sebelum dapat mengakses POS & Kas Toko.';
+        }
+
+        if ($todayAttendance->check_out) {
+            return 'Akses ditutup. Anda telah menyelesaikan absensi pulang (Clock Out) untuk shift hari ini.';
+        }
+
+        return null;
+    }
+
     public function pos(Request $request)
     {
         $user = $request->user();
         if (!$user->employee || $user->employee->unit_id != 1) {
             abort(403, 'Akses ditolak. Anda bukan pegawai Lumos Vape Store.');
+        }
+
+        $shiftRestriction = $this->checkActiveShift($user);
+        if ($shiftRestriction) {
+            $todayAttendance = Attendance::where('employee_id', $user->employee->id)->whereDate('date', date('Y-m-d'))->first();
+            $isEnded = (bool) ($todayAttendance && $todayAttendance->check_out);
+            return redirect()->route('dashboard')->with('shift_lock', [
+                'title' => $isEnded ? 'Shift Kerja Hari Ini Selesai' : 'Akses Dibatasi: Wajib Presensi Masuk',
+                'page' => 'POS & Rekonsiliasi Kas',
+                'status' => $isEnded ? 'ended' : 'not_started',
+                'message' => $shiftRestriction,
+            ]);
         }
 
         // Ambil data shift untuk unit Lumos (unit_id = 1)
@@ -40,6 +70,18 @@ class LumosController extends Controller
         $user = $request->user();
         if (!$user->employee || $user->employee->unit_id != 1) {
             abort(403, 'Akses ditolak. Anda bukan pegawai Lumos Vape Store.');
+        }
+
+        $shiftRestriction = $this->checkActiveShift($user);
+        if ($shiftRestriction) {
+            $todayAttendance = Attendance::where('employee_id', $user->employee->id)->whereDate('date', date('Y-m-d'))->first();
+            $isEnded = (bool) ($todayAttendance && $todayAttendance->check_out);
+            return redirect()->route('dashboard')->with('shift_lock', [
+                'title' => $isEnded ? 'Shift Kerja Hari Ini Selesai' : 'Akses Dibatasi: Wajib Presensi Masuk',
+                'page' => 'POS & Rekonsiliasi Kas',
+                'status' => $isEnded ? 'ended' : 'not_started',
+                'message' => $shiftRestriction,
+            ]);
         }
 
         $request->validate([

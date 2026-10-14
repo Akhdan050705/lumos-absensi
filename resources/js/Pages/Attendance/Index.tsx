@@ -3,7 +3,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, usePage } from '@inertiajs/react';
 import swal from '@/lib/swal';
 
-export default function Index({ shifts, todayAttendance, history }: any) {
+export default function Index({ shifts, todayAttendance, history, is_forced_full_shift, co_worker_name }: any) {
     const { auth } = usePage().props as any;
     const hasClockedIn = todayAttendance && todayAttendance.check_in;
     const hasClockedOut = todayAttendance && todayAttendance.check_out;
@@ -11,11 +11,12 @@ export default function Index({ shifts, todayAttendance, history }: any) {
     const [selectedShift, setSelectedShift] = useState(shifts[0]?.id || '');
 
     const handleClockIn = () => {
-        if (!selectedShift) {
+        const targetShiftId = is_forced_full_shift ? (shifts[0]?.id || selectedShift) : selectedShift;
+        if (!targetShiftId) {
             swal.error('Pilih Shift', 'Silakan pilih shift kerja terlebih dahulu sebelum melanjutkan presensi.');
             return;
         }
-        window.location.href = `/attendance/camera?type=in&shift_id=${selectedShift}`;
+        window.location.href = `/attendance/camera?type=in&shift_id=${targetShiftId}`;
     };
 
     return (
@@ -38,19 +39,47 @@ export default function Index({ shifts, todayAttendance, history }: any) {
                                 <p className="text-xs text-gray-500">{new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
                             </div>
                         </div>
+
+                        {/* Banner Otomatisasi Full Shift Jika Rekan Kerja Cuti */}
+                        {is_forced_full_shift && (
+                            <div className="mb-5 p-4 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900">
+                                <div className="flex items-start gap-3">
+                                    <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg shrink-0 mt-0.5">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-bold">Penugasan Otomatis: Full Shift (10:00 - 22:00)</h4>
+                                        <p className="text-xs text-indigo-700 mt-1 leading-relaxed">
+                                            Rekan kerja Anda <b>{co_worker_name || 'rekan kerja'}</b> sedang cuti/tidak masuk hari ini (telah disetujui Owner). Jadwal presensi Anda otomatis dialihkan ke <b>Full Shift (10:00 s/d 22:00)</b>.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         
                         {!hasClockedIn && (
                             <div className="max-w-md mb-5">
-                                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Pilih Shift Kerja</label>
-                                <select 
-                                    value={selectedShift}
-                                    onChange={(e) => setSelectedShift(e.target.value)}
-                                    className="block w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                                >
-                                    {shifts.map((s: any) => (
-                                        <option key={s.id} value={s.id}>{s.name} ({s.start_time} - {s.end_time})</option>
-                                    ))}
-                                </select>
+                                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                                    {is_forced_full_shift ? 'Shift Kerja Terpilih' : 'Pilih Shift Kerja'}
+                                </label>
+                                {is_forced_full_shift ? (
+                                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 flex items-center justify-between">
+                                        <span>{shifts[0]?.name} (10:00 - 22:00)</span>
+                                        <span className="text-[11px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-md">Otomatis Terkunci</span>
+                                    </div>
+                                ) : (
+                                    <select 
+                                        value={selectedShift}
+                                        onChange={(e) => setSelectedShift(e.target.value)}
+                                        className="block w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                    >
+                                        {shifts.map((s: any) => (
+                                            <option key={s.id} value={s.id}>{s.name} ({s.start_time.substring(0, 5)} - {s.end_time.substring(0, 5)})</option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
                         )}
 

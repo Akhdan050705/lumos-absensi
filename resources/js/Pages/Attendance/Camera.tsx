@@ -3,7 +3,7 @@ import { Head, useForm, Link } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import swal from '@/lib/swal';
 
-export default function Camera({ shift_id, type, unit_location }: any) {
+export default function Camera({ shift_id, shift, type, unit_location, server_time }: any) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     
@@ -11,6 +11,8 @@ export default function Camera({ shift_id, type, unit_location }: any) {
     const [capturedImg, setCapturedImg] = useState<string | null>(null);
     const [location, setLocation] = useState<{lat: number, lng: number, accuracy: number} | null>(null);
     const [locationError, setLocationError] = useState<string | null>(null);
+    const [showLateModal, setShowLateModal] = useState(false);
+    const [showEarlyLeaveModal, setShowEarlyLeaveModal] = useState(false);
 
     const { data, setData, post, processing, errors } = useForm({
         shift_id: shift_id,
@@ -19,6 +21,10 @@ export default function Camera({ shift_id, type, unit_location }: any) {
         latitude: 0,
         longitude: 0,
         accuracy: 0,
+        late_reason: 'Kendala Pribadi / Kesiangan (Bangun kesiangan atau kendala pribadi)',
+        late_notes: '',
+        early_leave_reason: 'Sakit Mendadak / Kurang Enak Badan',
+        early_leave_notes: '',
     });
 
     useEffect(() => {
@@ -96,15 +102,45 @@ export default function Camera({ shift_id, type, unit_location }: any) {
     const retakeImage = () => {
         setCapturedImg(null);
         setData('image', '');
+        setShowLateModal(false);
+        setShowEarlyLeaveModal(false);
         startCamera();
     };
 
-    const submitAttendance = () => {
+    const checkIfLate = () => {
+        if (type !== 'in' || !shift || !shift.start_time) return false;
+        const now = new Date();
+        const [h, m] = shift.start_time.split(':').map(Number);
+        const shiftStart = new Date();
+        shiftStart.setHours(h, m, 0, 0);
+        return now > shiftStart;
+    };
+
+    const checkIfEarly = () => {
+        if (type !== 'out' || !shift || !shift.end_time) return false;
+        const now = new Date();
+        const [h, m] = shift.end_time.split(':').map(Number);
+        const shiftEnd = new Date();
+        shiftEnd.setHours(h, m, 0, 0);
+        return now < shiftEnd;
+    };
+
+    const handlePreSubmit = () => {
         if (!data.image || !data.latitude || !data.longitude) {
             swal.error("Data Belum Lengkap", "Silakan ambil foto wajah dan pastikan koordinat lokasi GPS telah terdeteksi.");
             return;
         }
 
+        if (type === 'in' && checkIfLate()) {
+            setShowLateModal(true);
+        } else if (type === 'out' && checkIfEarly()) {
+            setShowEarlyLeaveModal(true);
+        } else {
+            executeSubmit();
+        }
+    };
+
+    const executeSubmit = () => {
         post('/attendance/store', {
             onError: (err: any) => {
                 const msg = Object.values(err)[0] as string || "Terjadi kesalahan saat memproses data presensi Anda.";
@@ -112,6 +148,24 @@ export default function Camera({ shift_id, type, unit_location }: any) {
             }
         });
     };
+
+    const lateOptions = [
+        { label: 'Kendala Pribadi / Kesiangan (Bangun kesiangan atau kendala pribadi)', val: 'Kendala Pribadi / Kesiangan (Bangun kesiangan atau kendala pribadi)' },
+        { label: 'Kendala Lalu Lintas (Kemacetan parah / pengalihan arus / kecelakaan)', val: 'Kendala Lalu Lintas (Kemacetan parah / pengalihan arus / kecelakaan)' },
+        { label: 'Kendala Kendaraan (Kendaraan mogok / ban bocor / kerusakan mesin)', val: 'Kendala Kendaraan (Kendaraan mogok / ban bocor / kerusakan mesin)' },
+        { label: 'Kendala Teknis / Sistem (Gangguan jaringan internet / GPS / server)', val: 'Kendala Teknis / Sistem (Gangguan jaringan internet / GPS / server)' },
+        { label: 'Urusan Darurat Keluarga (Kondisi mendesak keluarga)', val: 'Urusan Darurat Keluarga (Kondisi mendesak keluarga)' },
+        { label: 'Lainnya', val: 'Lainnya' },
+    ];
+
+    const earlyOptions = [
+        { label: 'Sakit Mendadak / Kurang Enak Badan', val: 'Sakit Mendadak / Kurang Enak Badan' },
+        { label: 'Keperluan Mendesak / Darurat Keluarga', val: 'Keperluan Mendesak / Darurat Keluarga' },
+        { label: 'Izin Resmi Disetujui Rekan / Atasan', val: 'Izin Resmi Disetujui Rekan / Atasan' },
+        { label: 'Toko Sepi / Instruksi Khusus Operasional', val: 'Toko Sepi / Instruksi Khusus Operasional' },
+        { label: 'Kendala Transportasi / Cuaca Ekstrem', val: 'Kendala Transportasi / Cuaca Ekstrem' },
+        { label: 'Lainnya', val: 'Lainnya' },
+    ];
 
     return (
         <AuthenticatedLayout header={<h2 className="font-semibold text-base text-gray-800 leading-tight">Presensi Foto Wajah & Lokasi GPS</h2>}>
@@ -122,8 +176,12 @@ export default function Camera({ shift_id, type, unit_location }: any) {
                     <div className="bg-white overflow-hidden shadow-sm border border-gray-200 sm:rounded-2xl p-6">
                         
                         <div className="mb-4">
-                            <h3 className="text-base font-bold text-gray-900">Verifikasi {type === 'in' ? 'Clock In (Masuk)' : 'Clock Out (Pulang)'}</h3>
-                            <p className="text-xs text-gray-500 mt-0.5">Posisikan wajah Anda tegak lurus ke kamera dan pastikan GPS dalam radius kantor.</p>
+                            <h3 className="text-base font-bold text-gray-900">
+                                Verifikasi {type === 'in' ? 'Clock In (Masuk)' : 'Clock Out (Pulang)'}
+                            </h3>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                                Shift: {shift?.name || 'Reguler'} ({shift?.start_time ? shift.start_time.slice(0, 5) : '-'} s/d {shift?.end_time ? shift.end_time.slice(0, 5) : '-'} WIB)
+                            </p>
                         </div>
 
                         {/* Error Handling Backend */}
@@ -144,7 +202,7 @@ export default function Camera({ shift_id, type, unit_location }: any) {
                             </div>
                             {unit_location && (
                                 <div className="text-[11px] mt-2 pt-2 border-t border-gray-200/60 text-gray-600 font-normal">
-                                    <span className="font-medium text-gray-800">Target Kantor:</span> {unit_location.address} (Radius: {unit_location.radius}m, Batas Akurasi: {unit_location.accuracy_limit}m)
+                                    <span className="font-medium text-gray-800">Target Kantor:</span> {unit_location.address} (Radius: {unit_location.radius}m)
                                 </div>
                             )}
                         </div>
@@ -183,7 +241,7 @@ export default function Camera({ shift_id, type, unit_location }: any) {
                                         Foto Ulang
                                     </button>
                                     <button
-                                        onClick={submitAttendance}
+                                        onClick={handlePreSubmit}
                                         disabled={processing}
                                         className="w-2/3 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-semibold py-3 px-4 rounded-xl shadow transition-all disabled:opacity-50 text-sm"
                                     >
@@ -200,6 +258,148 @@ export default function Camera({ shift_id, type, unit_location }: any) {
                     </div>
                 </div>
             </div>
+
+            {/* Modal Alasan Terlambat */}
+            {showLateModal && (
+                <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+                        <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-900">Terdeteksi Keterlambatan Masuk</h4>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    Shift Anda ({shift?.name}) dimulai pukul <span className="font-semibold text-gray-800">{shift?.start_time ? shift.start_time.slice(0, 5) : '-'} WIB</span>.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 pt-2">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
+                                    Pilih Alasan Keterlambatan <span className="text-rose-500">*</span>
+                                </label>
+                                <select
+                                    value={data.late_reason}
+                                    onChange={e => setData('late_reason', e.target.value)}
+                                    className="block w-full text-xs border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                >
+                                    {lateOptions.map((opt, i) => (
+                                        <option key={i} value={opt.val}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                                    Catatan / Penjelasan Tambahan (Opsional)
+                                </label>
+                                <textarea
+                                    value={data.late_notes}
+                                    onChange={e => setData('late_notes', e.target.value)}
+                                    rows={2}
+                                    className="block w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                    placeholder="Jelaskan detail kendala Anda..."
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100">
+                            <button
+                                type="button"
+                                onClick={() => setShowLateModal(false)}
+                                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2.5 rounded-xl font-medium transition"
+                            >
+                                Kembali
+                            </button>
+                            <button
+                                type="button"
+                                disabled={processing}
+                                onClick={executeSubmit}
+                                className="text-xs font-semibold bg-gray-900 hover:bg-black text-white px-5 py-2.5 rounded-xl shadow transition disabled:opacity-50"
+                            >
+                                {processing ? 'Menyimpan...' : 'Kirim Presensi & Alasan'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Alasan Pulang Lebih Awal */}
+            {showEarlyLeaveModal && (
+                <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+                        <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-900">Pulang Sebelum Jam Shift Berakhir</h4>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                    Jadwal shift Anda ({shift?.name}) selesai pukul <span className="font-semibold text-gray-800">{shift?.end_time ? shift.end_time.slice(0, 5) : '-'} WIB</span>.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 leading-relaxed">
+                            Anda tetap dapat melakukan absensi pulang saat ini. Alasan pulang lebih awal Anda akan dicatat dan ditinjau oleh Owner untuk persetujuan.
+                        </div>
+
+                        <div className="space-y-3 pt-1">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5">
+                                    Pilih Alasan Pulang Cepat <span className="text-rose-500">*</span>
+                                </label>
+                                <select
+                                    value={data.early_leave_reason}
+                                    onChange={e => setData('early_leave_reason', e.target.value)}
+                                    className="block w-full text-xs border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                >
+                                    {earlyOptions.map((opt, i) => (
+                                        <option key={i} value={opt.val}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+                                    Catatan / Penjelasan Tambahan (Opsional)
+                                </label>
+                                <textarea
+                                    value={data.early_leave_notes}
+                                    onChange={e => setData('early_leave_notes', e.target.value)}
+                                    rows={2}
+                                    className="block w-full text-xs border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                                    placeholder="Jelaskan detail alasan mengapa harus pulang lebih awal..."
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2.5 pt-3 border-t border-gray-100">
+                            <button
+                                type="button"
+                                onClick={() => setShowEarlyLeaveModal(false)}
+                                className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2.5 rounded-xl font-medium transition"
+                            >
+                                Batal
+                            </button>
+                            <button
+                                type="button"
+                                disabled={processing}
+                                onClick={executeSubmit}
+                                className="text-xs font-semibold bg-gray-900 hover:bg-black text-white px-5 py-2.5 rounded-xl shadow transition disabled:opacity-50"
+                            >
+                                {processing ? 'Menyimpan...' : 'Kirim Absensi Pulang'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </AuthenticatedLayout>
     );
 }

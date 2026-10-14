@@ -39,6 +39,7 @@ class HandleInertiaRequests extends Middleware
         $role = null;
         $unit = null;
         $profile = null;
+        $shiftStatus = null;
 
         if ($user) {
             $user->load('roles');
@@ -48,6 +49,18 @@ class HandleInertiaRequests extends Middleware
                 $user->employee->load('profile', 'unit');
                 $unit = $user->employee->unit;
                 $profile = $user->employee->profile;
+
+                $todayAttendance = \App\Models\Attendance::where('employee_id', $user->employee->id)
+                    ->whereDate('date', date('Y-m-d'))
+                    ->first();
+
+                $shiftStatus = [
+                    'is_active' => (bool) ($todayAttendance && $todayAttendance->check_in && !$todayAttendance->check_out),
+                    'has_clocked_in' => (bool) ($todayAttendance && $todayAttendance->check_in),
+                    'has_clocked_out' => (bool) ($todayAttendance && $todayAttendance->check_out),
+                    'check_in_time' => $todayAttendance && $todayAttendance->check_in ? $todayAttendance->check_in->format('H:i') : null,
+                    'check_out_time' => $todayAttendance && $todayAttendance->check_out ? $todayAttendance->check_out->format('H:i') : null,
+                ];
             }
         }
 
@@ -69,11 +82,13 @@ class HandleInertiaRequests extends Middleware
                 'profile' => $profile ? [
                     'full_name' => $profile->full_name
                 ] : null,
+                'shift_status' => $shiftStatus,
                 'notifications' => $user ? $user->unreadNotifications()->take(5)->get() : [],
             ],
             'flash' => [
                 'message' => fn () => $request->session()->get('message'),
                 'error' => fn () => $request->session()->get('error'),
+                'shift_lock' => fn () => $request->session()->get('shift_lock'),
             ],
         ];
     }

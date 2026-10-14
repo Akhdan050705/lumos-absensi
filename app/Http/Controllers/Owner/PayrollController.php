@@ -22,7 +22,7 @@ class PayrollController extends Controller
         if (!$request->user()->hasRole('owner')) abort(403, 'Akses khusus Owner.');
 
         $units = BusinessUnit::all();
-        $periods = PayrollPeriod::with('unit')->orderBy('start_date', 'desc')->get();
+        $periods = PayrollPeriod::with('unit')->orderBy('created_at', 'desc')->get();
 
         return Inertia::render('Owner/Payroll', [
             'units' => $units,
@@ -47,12 +47,16 @@ class PayrollController extends Controller
         $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
         $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
 
-        $existingPeriod = PayrollPeriod::where('unit_id', $unitId)
+        // Hanya blokir jika sudah ada periode yang berstatus APPROVED atau PAID
+        $approvedPeriod = PayrollPeriod::where('unit_id', $unitId)
             ->where('start_date', $startDate->format('Y-m-d'))
+            ->whereIn('status', ['approved', 'paid'])
             ->first();
 
-        if ($existingPeriod) {
-            return redirect()->back()->withErrors(['general' => 'Payroll untuk unit dan periode ini sudah pernah dibuat.']);
+        if ($approvedPeriod) {
+            return redirect()->back()->withErrors([
+                'general' => 'Payroll untuk unit dan periode ini sudah di-ACC/Disetujui. Batalkan ACC terlebih dahulu jika ingin membuat rekalkulasi baru.'
+            ]);
         }
 
         // Ambil konfigurasi gaji pokok dari system_settings
@@ -85,9 +89,10 @@ class PayrollController extends Controller
                     'gross_pay' => 0,
                     'total_deductions' => 0,
                     'net_pay' => 0,
+                    'status' => 'draft'
                 ]);
 
-                // 1. Gaji Pokok (Berdasarkan system_settings & payroll_components)
+                // 1. Gaji Pokok
                 $grossPay += $baseSalary;
                 PayrollDetail::create([
                     'calculation_id' => $calc->id,
@@ -96,13 +101,14 @@ class PayrollController extends Controller
                     'amount' => $baseSalary
                 ]);
 
-                // 2. Denda Keterlambatan (Berdasarkan penalty_amount aktual di attendance_records)
+                // 2. Potongan Denda Keterlambatan (Hanya yang tidak dimaafkan / tidak waived)
                 $attendances = Attendance::where('employee_id', $emp->id)
                     ->whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
                     ->get();
                 
-                $totalLateMinutes = $attendances->sum('late_minutes');
-                $latePenalty = (float) $attendances->sum('penalty_amount');
+                $activeLateAttendances = $attendances->where('penalty_waived', false)->where('penalty_amount', '>', 0);
+                $totalLateMinutes = $activeLateAttendances->sum('late_minutes');
+                $latePenalty = (float) $activeLateAttendances->sum('penalty_amount');
 
                 if ($latePenalty > 0) {
                     $deductions += $latePenalty;
@@ -114,7 +120,22 @@ class PayrollController extends Controller
                     ]);
                 }
 
-                // 3. Komisi Bagi Hasil (Khusus Luxeast - dicek dari revenue_share_rules per pegawai)
+                // Potongan Denda Pulang Lebih Awal (jika ditolak oleh Owner & ada denda)
+                $rejectedEarlyAttendances = $attendances->where('early_leave_status', 'rejected')->where('early_leave_penalty', '>', 0);
+                $totalEarlyMinutes = (int) $rejectedEarlyAttendances->sum('early_leave_minutes');
+                $earlyPenalty = (float) $rejectedEarlyAttendances->sum('early_leave_penalty');
+
+                if ($earlyPenalty > 0) {
+                    $deductions += $earlyPenalty;
+                    PayrollDetail::create([
+                        'calculation_id' => $calc->id,
+                        'description' => "Potongan Pulang Lebih Awal ({$totalEarlyMinutes} menit)",
+                        'type' => 'deduction',
+                        'amount' => $earlyPenalty
+                    ]);
+                }
+
+                // 3. Komisi Bagi Hasil (Khusus Luxeast)
                 if ($unitId == 2) {
                     $empRule = DB::table('revenue_share_rules')
                         ->where('unit_id', 2)
@@ -149,7 +170,7 @@ class PayrollController extends Controller
             }
 
             DB::commit();
-            return redirect()->back()->with('message', 'Draft Payroll berhasil digenerate! Silakan review dan setujui untuk merilis slip gaji.');
+            return redirect()->back()->with('message', 'Draft Payroll baru berhasil dikalkulasi! Silakan review dan ACC.');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -183,6 +204,7 @@ class PayrollController extends Controller
         }
 
         $period->update(['status' => 'approved']);
+        $period->calculations()->update(['status' => 'approved']);
 
         // Rilis slip gaji & kirim notifikasi ke masing-masing pegawai
         $monthName = Carbon::parse($period->start_date)->translatedFormat('F Y');
@@ -195,6 +217,46 @@ class PayrollController extends Controller
             }
         }
 
-        return redirect()->back()->with('message', "Payroll periode {$monthName} berhasil disetujui dan slip gaji resmi dirilis ke pegawai!");
+        return redirect()->back()->with('message', "Payroll periode {$monthName} berhasil di-ACC (disetujui) dan slip gaji resmi dirilis ke pegawai!");
+    }
+
+    public function revoke(Request $request, $id)
+    {
+        if (!$request->user()->hasRole('owner')) abort(403);
+
+        $period = PayrollPeriod::with('calculations')->findOrFail($id);
+        if ($period->status === 'paid') {
+            return redirect()->back()->withErrors(['general' => 'Payroll yang sudah PAID tidak dapat dibatalkan ACC-nya.']);
+        }
+
+        $period->update(['status' => 'draft']);
+        $period->calculations()->update(['status' => 'draft']);
+
+        return redirect()->back()->with('message', 'Persetujuan (ACC) payroll berhasil dibatalkan. Status kembali ke Draft dan slip gaji ditarik dari akses pegawai.');
+    }
+
+    public function destroy(Request $request, $id)
+    {
+        if (!$request->user()->hasRole('owner')) abort(403);
+
+        $period = PayrollPeriod::with('calculations.details')->findOrFail($id);
+        if ($period->status === 'paid') {
+            return redirect()->back()->withErrors(['general' => 'Payroll yang sudah berstatus PAID tidak dapat dihapus.']);
+        }
+
+        DB::beginTransaction();
+        try {
+            foreach ($period->calculations as $calc) {
+                $calc->details()->delete();
+            }
+            $period->calculations()->delete();
+            $period->delete();
+
+            DB::commit();
+            return redirect()->back()->with('message', 'Kalkulasi penggajian berhasil dihapus.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->withErrors(['general' => 'Gagal menghapus payroll: ' . $e->getMessage()]);
+        }
     }
 }

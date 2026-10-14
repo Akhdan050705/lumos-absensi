@@ -17,6 +17,16 @@ class Attendance extends Model
         'status',
         'late_minutes',
         'penalty_amount',
+        'late_reason',
+        'late_notes',
+        'penalty_waived',
+        'waived_reason',
+        'early_leave_minutes',
+        'early_leave_reason',
+        'early_leave_notes',
+        'early_leave_status',
+        'early_leave_penalty',
+        'early_leave_approval_notes',
         'is_manual'
     ];
 
@@ -24,6 +34,9 @@ class Attendance extends Model
         'date' => 'date',
         'check_in' => 'datetime',
         'check_out' => 'datetime',
+        'penalty_waived' => 'boolean',
+        'early_leave_minutes' => 'integer',
+        'early_leave_penalty' => 'float',
         'is_manual' => 'boolean'
     ];
 
@@ -35,5 +48,10 @@ class Attendance extends Model
     public function shift()
     {
         return $this->belongsTo(Shift::class, 'shift_id', 'id');
+    }
+
+    public function photos()
+    {
+        return $this->hasMany(AttendancePhoto::class, 'attendance_record_id', 'id');
     }
 }

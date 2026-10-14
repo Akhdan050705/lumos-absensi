@@ -8,6 +8,7 @@ use Inertia\Inertia;
 use App\Models\Shift;
 use App\Models\Location;
 use App\Models\Attendance;
+use App\Models\LeaveRequest;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
@@ -22,11 +23,38 @@ class AttendanceController extends Controller
         }
 
         $unitId = $user->employee->unit_id;
-        
-        $shifts = Shift::where('unit_id', $unitId)->get();
+        $today = date('Y-m-d');
+
+        // Cek apakah ada rekan kerja di unit yang sama yang cutinya APPROVED pada hari ini
+        $coWorkerOnLeave = LeaveRequest::where('status', 'approved')
+            ->where('employee_id', '!=', $user->employee->id)
+            ->whereHas('employee', function($q) use ($unitId) {
+                $q->where('unit_id', $unitId);
+            })
+            ->whereDate('start_date', '<=', $today)
+            ->whereDate('end_date', '>=', $today)
+            ->with('employee.user')
+            ->first();
+
+        $fullShift = Shift::where('unit_id', $unitId)->where('name', 'Full Shift')->first();
+
+        if ($coWorkerOnLeave && $fullShift) {
+            // Otomatis langsung terkunci ke Full Shift (10:00 - 22:00)
+            $shifts = collect([$fullShift]);
+            $isForcedFullShift = true;
+            $coWorkerName = $coWorkerOnLeave->employee->user->name ?? 'Rekan Kerja';
+        } else {
+            // Jika tidak ada rekan yang cuti, tampilkan shift reguler dan sembunyikan Full Shift dari rotasi biasa
+            $shifts = Shift::where('unit_id', $unitId)->where('is_active', 1)->where('name', '!=', 'Full Shift')->get();
+            if ($shifts->isEmpty()) {
+                $shifts = Shift::where('unit_id', $unitId)->where('is_active', 1)->get();
+            }
+            $isForcedFullShift = false;
+            $coWorkerName = null;
+        }
         
         $todayAttendance = Attendance::where('employee_id', $user->employee->id)
-                                     ->where('date', date('Y-m-d'))
+                                     ->where('date', $today)
                                      ->first();
 
         $history = Attendance::where('employee_id', $user->employee->id)
@@ -38,7 +66,9 @@ class AttendanceController extends Controller
         return Inertia::render('Attendance/Index', [
             'shifts' => $shifts,
             'todayAttendance' => $todayAttendance,
-            'history' => $history
+            'history' => $history,
+            'is_forced_full_shift' => $isForcedFullShift,
+            'co_worker_name' => $coWorkerName,
         ]);
     }
 
@@ -51,28 +81,45 @@ class AttendanceController extends Controller
 
         $shiftId = $request->query('shift_id');
         $type = $request->query('type');
+        $today = date('Y-m-d');
+        $unitId = $user->employee->unit_id;
 
-        // Jika dipanggil tanpa parameter, berikan default shift aktif pertama & tipe check-in
-        if (!$shiftId) {
-            $defaultShift = Shift::where('unit_id', $user->employee->unit_id)->where('is_active', 1)->first()
-                ?? Shift::where('unit_id', $user->employee->unit_id)->first();
+        // Cek apakah rekan kerja cuti (sehingga otomatis Full Shift)
+        $coWorkerOnLeave = LeaveRequest::where('status', 'approved')
+            ->where('employee_id', '!=', $user->employee->id)
+            ->whereHas('employee', function($q) use ($unitId) {
+                $q->where('unit_id', $unitId);
+            })
+            ->whereDate('start_date', '<=', $today)
+            ->whereDate('end_date', '>=', $today)
+            ->first();
+
+        $fullShift = Shift::where('unit_id', $unitId)->where('name', 'Full Shift')->first();
+
+        if ($coWorkerOnLeave && $fullShift) {
+            $shiftId = $fullShift->id;
+        } elseif (!$shiftId) {
+            $defaultShift = Shift::where('unit_id', $unitId)->where('is_active', 1)->where('name', '!=', 'Full Shift')->first()
+                ?? Shift::where('unit_id', $unitId)->first();
             $shiftId = $defaultShift ? $defaultShift->id : 1;
         }
 
         if (!in_array($type, ['in', 'out'])) {
-            // Cek apakah sudah clock in hari ini untuk menentukan tipe default
-            $today = Attendance::where('employee_id', $user->employee->id)
-                ->where('date', date('Y-m-d'))
+            $todayAtt = Attendance::where('employee_id', $user->employee->id)
+                ->where('date', $today)
                 ->first();
-            $type = ($today && $today->check_in && !$today->check_out) ? 'out' : 'in';
+            $type = ($todayAtt && $todayAtt->check_in && !$todayAtt->check_out) ? 'out' : 'in';
         }
 
-        $location = Location::where('unit_id', $user->employee->unit_id)->first();
+        $shift = Shift::find($shiftId);
+        $location = Location::where('unit_id', $unitId)->first();
 
         return Inertia::render('Attendance/Camera', [
             'shift_id' => $shiftId,
+            'shift' => $shift,
             'type' => $type,
-            'unit_location' => $location
+            'unit_location' => $location,
+            'server_time' => Carbon::now()->format('H:i:s')
         ]);
     }
 
@@ -85,6 +132,10 @@ class AttendanceController extends Controller
             'latitude' => 'required|numeric',
             'longitude' => 'required|numeric',
             'accuracy' => 'nullable|numeric',
+            'late_reason' => 'nullable|string|max:255',
+            'late_notes' => 'nullable|string|max:1000',
+            'early_leave_reason' => 'nullable|string|max:255',
+            'early_leave_notes' => 'nullable|string|max:1000',
         ]);
 
         $user = $request->user();
@@ -123,6 +174,7 @@ class AttendanceController extends Controller
         if (!$imageValidation['success']) {
             return back()->withErrors(['image' => $imageValidation['message']]);
         }
+
         $imagePath = $imageValidation['path'];
 
         $attendance = Attendance::firstOrNew([
@@ -141,11 +193,13 @@ class AttendanceController extends Controller
             }
             $attendance->check_in = $now;
             
-            // Perhitungan keterlambatan dengan Carbon 3
+            // Perhitungan keterlambatan dengan Carbon
             if ($now->greaterThan($shiftStartTime)) {
                 $lateMinutes = (int) $shiftStartTime->diffInMinutes($now);
                 $attendance->late_minutes = $lateMinutes;
                 $attendance->status = 'late';
+                $attendance->late_reason = $request->late_reason;
+                $attendance->late_notes = $request->late_notes;
 
                 // Toleransi 30 menit & Denda Berjenjang Rp 50.000 per 30 menit
                 $penaltyBase = (float) (DB::table('system_settings')->where('setting_key', 'lumos_late_penalty_base')->value('setting_value') ?? 50000);
@@ -168,6 +222,20 @@ class AttendanceController extends Controller
                 return back()->withErrors(['general' => 'Anda sudah melakukan clock out hari ini.']);
             }
             $attendance->check_out = $now;
+
+            // Periksa apakah pulang lebih awal dari jadwal shift
+            $shiftEndTime = Carbon::parse($today . ' ' . $shift->end_time);
+            if ($now->lessThan($shiftEndTime)) {
+                $earlyMinutes = (int) $now->diffInMinutes($shiftEndTime);
+                $attendance->early_leave_minutes = $earlyMinutes;
+                $attendance->early_leave_reason = $request->early_leave_reason ?: 'Pulang Lebih Awal';
+                $attendance->early_leave_notes = $request->early_leave_notes;
+                $attendance->early_leave_status = 'pending'; // Menunggu konfirmasi / ACC owner
+                $attendance->early_leave_penalty = 0;
+            } else {
+                $attendance->early_leave_minutes = 0;
+                $attendance->early_leave_status = 'none';
+            }
         }
 
         $attendance->save();

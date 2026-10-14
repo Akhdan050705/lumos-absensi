@@ -1,20 +1,53 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
+import swal from '@/lib/swal';
 
-const NavItem = ({ href, label, active }: { href: string, label: string, active: boolean }) => (
-    <a href={href} className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${active ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'}`}>
+const NavItem = ({ href, label, active, onClick }: { href: string, label: string, active: boolean, onClick?: (e: React.MouseEvent) => void }) => (
+    <a 
+        href={href} 
+        onClick={onClick}
+        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${active ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'}`}
+    >
         {label}
     </a>
 );
 
 export default function AuthenticatedLayout({ children, header }: { children: ReactNode, header?: ReactNode }) {
-    const { auth } = usePage().props as any;
+    const { auth, flash } = usePage().props as any;
     const [open, setOpen] = useState(false);
     const path = typeof window !== 'undefined' ? window.location.pathname : '';
+
+    useEffect(() => {
+        if (flash?.shift_lock) {
+            swal.promptShiftRequired(
+                flash.shift_lock.page || 'Modul Operasional',
+                flash.shift_lock.status || 'not_started',
+                flash.shift_lock.message
+            );
+        }
+    }, [flash]);
+
+    const isShiftRestricted = (targetHref: string) => {
+        if (auth?.role === 'owner') return false;
+        const restrictedHrefs = ['/manual-attendance', '/lumos/pos', '/luxeast/cashier'];
+        return restrictedHrefs.some(rh => targetHref.startsWith(rh));
+    };
+
+    const handleNavClick = (e: React.MouseEvent, itemHref: string, itemLabel: string) => {
+        if (isShiftRestricted(itemHref)) {
+            if (!auth?.shift_status?.is_active) {
+                e.preventDefault();
+                const status = auth?.shift_status?.has_clocked_out ? 'ended' : 'not_started';
+                swal.promptShiftRequired(itemLabel, status);
+                return;
+            }
+        }
+    };
 
     const ownerNav = [
         { href: '/dashboard', label: 'Dashboard' },
         { href: '/owner/employees', label: 'Pegawai' },
+        { href: '/owner/attendance-recap', label: 'Rekap Absen' },
         { href: '/owner/manual-attendance', label: 'Koreksi Absen' },
         { href: '/owner/leaves', label: 'Cuti & Izin' },
         { href: '/owner/payroll', label: 'Penggajian' },
@@ -58,7 +91,13 @@ export default function AuthenticatedLayout({ children, header }: { children: Re
                         </a>
                         <nav className="hidden sm:flex items-center gap-1">
                             {navItems.map(n => (
-                                <NavItem key={n.href} href={n.href} label={n.label} active={path === n.href || (n.href !== '/dashboard' && path.startsWith(n.href))} />
+                                <NavItem 
+                                    key={n.href} 
+                                    href={n.href} 
+                                    label={n.label} 
+                                    active={path === n.href || (n.href !== '/dashboard' && path.startsWith(n.href))}
+                                    onClick={(e) => handleNavClick(e, n.href, n.label)}
+                                />
                             ))}
                         </nav>
                     </div>
@@ -118,7 +157,17 @@ export default function AuthenticatedLayout({ children, header }: { children: Re
                 {open && (
                     <div className="sm:hidden border-t border-gray-100 bg-white px-4 py-3 space-y-1">
                         {navItems.map(n => (
-                            <a key={n.href} href={n.href} className="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">{n.label}</a>
+                            <a 
+                                key={n.href} 
+                                href={n.href} 
+                                onClick={(e) => {
+                                    setOpen(false);
+                                    handleNavClick(e, n.href, n.label);
+                                }}
+                                className="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            >
+                                {n.label}
+                            </a>
                         ))}
                         <div className="border-t pt-2 mt-2">
                             <Link href="/logout" method="post" as="button" className="block w-full text-left px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-md">Keluar</Link>

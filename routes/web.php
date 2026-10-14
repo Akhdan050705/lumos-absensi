@@ -37,10 +37,15 @@ Route::middleware('auth')->group(function () {
 
     // -- Owner Routes --
     Route::middleware('role:owner')->group(function() {
+        Route::get('/owner/attendance-recap', [\App\Http\Controllers\Owner\AttendanceRecapController::class, 'index'])->name('owner.attendance-recap.index');
+        Route::patch('/owner/attendance-recap/{id}/adjust-penalty', [\App\Http\Controllers\Owner\AttendanceRecapController::class, 'adjustPenalty'])->name('owner.attendance-recap.adjust-penalty');
+        Route::patch('/owner/attendance-recap/{id}/confirm-early-leave', [\App\Http\Controllers\Owner\AttendanceRecapController::class, 'confirmEarlyLeave'])->name('owner.attendance-recap.confirm-early-leave');
         Route::get('/owner/payroll', [\App\Http\Controllers\Owner\PayrollController::class, 'index'])->name('owner.payroll.index');
         Route::post('/owner/payroll/generate', [\App\Http\Controllers\Owner\PayrollController::class, 'generate'])->name('owner.payroll.generate');
         Route::get('/owner/payroll/{id}', [\App\Http\Controllers\Owner\PayrollController::class, 'show'])->name('owner.payroll.show');
         Route::patch('/owner/payroll/{id}/approve', [\App\Http\Controllers\Owner\PayrollController::class, 'approve'])->name('owner.payroll.approve');
+        Route::patch('/owner/payroll/{id}/revoke', [\App\Http\Controllers\Owner\PayrollController::class, 'revoke'])->name('owner.payroll.revoke');
+        Route::delete('/owner/payroll/{id}', [\App\Http\Controllers\Owner\PayrollController::class, 'destroy'])->name('owner.payroll.destroy');
         Route::get('/owner/reports', [\App\Http\Controllers\Owner\ReportController::class, 'index'])->name('owner.reports.index');
         Route::patch('/owner/reports/snapshot/{id}/verify', [\App\Http\Controllers\Owner\ReportController::class, 'verifySnapshot'])->name('owner.reports.verify-snapshot');
         Route::get('/owner/leaves', [\App\Http\Controllers\Owner\LeaveController::class, 'index'])->name('owner.leaves.index');

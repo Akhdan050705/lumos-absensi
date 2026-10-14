@@ -1,5 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, usePage } from '@inertiajs/react';
+import swal from '@/lib/swal';
 
 const Icon = {
     users: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>,
@@ -14,20 +15,65 @@ const Icon = {
     receipt: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0c1.1.128 1.907 1.077 1.907 2.185zM9.75 9h.008v.008H9.75V9zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 4.5h.008v.008h-.008V13.5zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/></svg>,
 };
 
-type ModuleCard = { href: string, icon: keyof typeof Icon, title: string, desc: string };
+type ModuleCard = { 
+    href: string, 
+    icon: keyof typeof Icon, 
+    title: string, 
+    desc: string,
+    restricted?: boolean 
+};
 
-const Card = ({ href, icon, title, desc }: ModuleCard) => {
+const Card = ({ 
+    href, 
+    icon, 
+    title, 
+    desc, 
+    restricted, 
+    isShiftActive, 
+    onRestrictedClick 
+}: ModuleCard & { 
+    isShiftActive: boolean, 
+    onRestrictedClick?: (e: React.MouseEvent) => void 
+}) => {
     const IconComp = Icon[icon];
+    const isLocked = restricted && !isShiftActive;
+
+    const handleClick = (e: React.MouseEvent) => {
+        if (isLocked && onRestrictedClick) {
+            e.preventDefault();
+            onRestrictedClick(e);
+        }
+    };
+
     return (
-        <a href={href} className="group bg-white border border-gray-200 rounded-xl p-5 flex items-start gap-4 hover:border-indigo-300 hover:shadow-md transition-all duration-150">
-            <div className="w-10 h-10 rounded-lg bg-gray-100 group-hover:bg-indigo-50 flex items-center justify-center text-gray-500 group-hover:text-indigo-600 transition-colors shrink-0">
+        <a 
+            href={href} 
+            onClick={handleClick}
+            className={`group bg-white border border-gray-200 rounded-xl p-5 flex items-start gap-4 hover:border-indigo-300 hover:shadow-md transition-all duration-150 relative ${
+                isLocked ? 'hover:border-amber-300' : ''
+            }`}
+        >
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                isLocked 
+                    ? 'bg-amber-50 text-amber-600 group-hover:bg-amber-100' 
+                    : 'bg-gray-100 group-hover:bg-indigo-50 text-gray-500 group-hover:text-indigo-600'
+            }`}>
                 <IconComp />
             </div>
             <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-800">{title}</p>
+                <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-gray-800">{title}</p>
+                    {isLocked && (
+                        <span className="text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded">
+                            Perlu Clock In
+                        </span>
+                    )}
+                </div>
                 <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{desc}</p>
             </div>
-            <svg className="w-4 h-4 text-gray-300 group-hover:text-indigo-400 transition-colors shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/></svg>
+            <svg className="w-4 h-4 text-gray-300 group-hover:text-indigo-400 transition-colors shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/>
+            </svg>
         </a>
     );
 };
@@ -38,21 +84,31 @@ export default function Dashboard() {
     const greeting = hour < 12 ? 'Selamat pagi' : hour < 17 ? 'Selamat siang' : 'Selamat malam';
     const today = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
+    const isShiftActive = auth.role === 'owner' || Boolean(auth.shift_status?.is_active);
+    const isShiftEnded = Boolean(auth.shift_status?.has_clocked_out);
+
+    const handleRestrictedCardClick = (title: string) => {
+        swal.promptShiftRequired(title, isShiftEnded ? 'ended' : 'not_started');
+    };
+
     const ownerModules: ModuleCard[] = [
         { href: '/owner/employees', icon: 'users', title: 'Manajemen Pegawai', desc: 'Kelola data akun dan penempatan pegawai di semua unit bisnis.' },
+        { href: '/owner/attendance-recap', icon: 'camera', title: 'Rekap Absen & Keterlambatan', desc: 'Pantau bukti selfie masuk/pulang, alasan terlambat, dan kontrol pembebasan denda.' },
         { href: '/owner/leaves', icon: 'calendar', title: 'Persetujuan Cuti & Izin', desc: 'Tinjau dan proses pengajuan izin dari seluruh pegawai.' },
         { href: '/owner/payroll', icon: 'banknotes', title: 'Penggajian (Payroll)', desc: 'Generate dan lihat kalkulasi gaji bulanan otomatis per unit.' },
         { href: '/owner/reports', icon: 'chart', title: 'Laporan Keuangan', desc: 'Ringkasan pendapatan, beban gaji, dan estimasi laba bersih.' },
     ];
     const lumosModules: ModuleCard[] = [
         { href: '/attendance', icon: 'camera', title: 'Presensi & Absensi', desc: 'Check-in atau check-out menggunakan kamera dan verifikasi lokasi GPS.' },
-        { href: '/lumos/pos', icon: 'cash', title: 'POS & Rekonsiliasi Kas', desc: 'Submit laporan penutupan kas harian beserta foto bukti.' },
+        { href: '/lumos/pos', icon: 'cash', title: 'POS & Rekonsiliasi Kas', desc: 'Submit laporan penutupan kas harian beserta foto bukti.', restricted: true },
+        { href: '/manual-attendance', icon: 'clock', title: 'Koreksi Presensi', desc: 'Pengajuan koreksi presensi jika ada kendala sistem atau lupa check-in.', restricted: true },
         { href: '/leave', icon: 'document', title: 'Pengajuan Cuti & Izin', desc: 'Ajukan izin sakit, absen resmi, atau cuti lainnya.' },
         { href: '/payslip', icon: 'receipt', title: 'Slip Gaji', desc: 'Lihat rincian gaji, potongan, dan take-home pay bulanan.' },
     ];
     const luxeastModules: ModuleCard[] = [
         { href: '/attendance', icon: 'camera', title: 'Presensi & Absensi', desc: 'Check-in atau check-out menggunakan kamera dan verifikasi lokasi GPS.' },
-        { href: '/luxeast/cashier', icon: 'scissors', title: 'Kasir Barbershop', desc: 'Catat transaksi layanan, pilih kapster, dan metode pembayaran.' },
+        { href: '/luxeast/cashier', icon: 'scissors', title: 'Kasir Barbershop', desc: 'Catat transaksi layanan, pilih kapster, dan metode pembayaran.', restricted: true },
+        { href: '/manual-attendance', icon: 'clock', title: 'Koreksi Presensi', desc: 'Pengajuan koreksi presensi jika ada kendala sistem atau lupa check-in.', restricted: true },
         { href: '/leave', icon: 'document', title: 'Pengajuan Cuti & Izin', desc: 'Ajukan izin sakit, absen resmi, atau cuti lainnya.' },
         { href: '/payslip', icon: 'receipt', title: 'Slip Gaji & Komisi', desc: 'Lihat rincian gaji pokok, komisi bagi hasil, dan take-home pay.' },
     ];
@@ -90,7 +146,14 @@ export default function Dashboard() {
                 <div>
                     <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Menu Utama</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {modules.map(m => <Card key={m.href} {...m} />)}
+                        {modules.map(m => (
+                            <Card 
+                                key={m.href} 
+                                {...m} 
+                                isShiftActive={isShiftActive}
+                                onRestrictedClick={() => handleRestrictedCardClick(m.title)}
+                            />
+                        ))}
                     </div>
                 </div>
 

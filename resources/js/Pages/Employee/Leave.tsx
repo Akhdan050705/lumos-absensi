@@ -49,6 +49,7 @@ export default function Leave({ leaveTypes, history }: any) {
                                         <option value="" disabled>Pilih Jenis...</option>
                                         {leaveTypes.map((t: any) => <option key={t.id} value={t.id}>{t.name} {t.is_paid ? '(Dibayar)' : '(Tanpa Gaji)'}</option>)}
                                     </select>
+                                    <p className="text-[11px] text-gray-400 mt-1">Untuk kendala presensi (lupa check in/out, kendala teknis), ajukan melalui menu <b>Koreksi Absen</b>.</p>
                                     {errors.leave_type_id && <p className="text-red-500 text-xs mt-1">{errors.leave_type_id}</p>}
                                 </div>
 
