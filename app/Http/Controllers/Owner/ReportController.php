@@ -1,0 +1,122 @@
+<?php
+
+namespace App\Http\Controllers\Owner;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Inertia\Inertia;
+use App\Models\SalesSnapshot;
+use App\Models\BarberTransaction;
+use App\Models\PayrollCalculation;
+use Carbon\Carbon;
+
+class ReportController extends Controller
+{
+    public function index(Request $request)
+    {
+        if (!$request->user()->hasRole('owner')) abort(403);
+
+        $month = $request->query('month', date('m'));
+        $year = $request->query('year', date('Y'));
+        $date = $request->query('date', null);
+
+        $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
+        $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
+
+        // --- Summary Bulanan ---
+        $lumosRevenue = SalesSnapshot::where('unit_id', 1)
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->sum('pos_total');
+
+        $luxeastRevenue = BarberTransaction::whereBetween('transaction_time', [$startDate, $endDate])
+            ->sum('price_snapshot');
+
+        $totalPayrollExpense = PayrollCalculation::whereHas('period', function($q) use ($startDate, $endDate) {
+            $q->where('start_date', '>=', $startDate->format('Y-m-d'))
+              ->where('end_date', '<=', $endDate->format('Y-m-d'));
+        })->sum('net_pay');
+
+        // --- Laporan Kas Harian (Lumos POS Snapshots) ---
+        $snapshotQuery = SalesSnapshot::with(['employee.user', 'unit'])
+            ->orderBy('created_at', 'desc');
+
+        if ($date) {
+            $snapshotQuery->whereDate('created_at', $date);
+        } else {
+            $snapshotQuery->whereBetween('created_at', [$startDate, $endDate]);
+        }
+
+        $snapshots = $snapshotQuery->get();
+
+        // --- Laporan Transaksi Harian (Luxeast Barbershop) ---
+        $txQuery = BarberTransaction::with(['employee.user', 'service', 'paymentMethod']);
+
+        if ($date) {
+            $txQuery->whereDate('transaction_time', $date);
+        } else {
+            $txQuery->whereBetween('transaction_time', [$startDate, $endDate]);
+        }
+
+        $barberTransactions = $txQuery->orderBy('transaction_time', 'desc')->get();
+
+        // Group barber transactions by date for daily summary
+        $barberDaily = $barberTransactions->groupBy(function($tx) {
+            return Carbon::parse($tx->transaction_time)->format('Y-m-d');
+        })->map(function($group, $dateKey) {
+            return [
+                'date' => $dateKey,
+                'total' => $group->sum('price_snapshot'),
+                'count' => $group->count(),
+                'transactions' => $group->values(),
+            ];
+        })->values();
+
+        return Inertia::render('Owner/Report', [
+            'filter' => [
+                'month' => (int)$month,
+                'year' => (int)$year,
+                'date' => $date,
+            ],
+            'summary' => [
+                'lumos_revenue' => $lumosRevenue,
+                'luxeast_revenue' => $luxeastRevenue,
+                'total_revenue' => $lumosRevenue + $luxeastRevenue,
+                'payroll_expense' => $totalPayrollExpense,
+                'net_profit' => ($lumosRevenue + $luxeastRevenue) - $totalPayrollExpense
+            ],
+            'snapshots' => $snapshots,
+            'barberDaily' => $barberDaily,
+        ]);
+    }
+
+    public function verifySnapshot(Request $request, $id)
+    {
+        if (!$request->user()->hasRole('owner')) abort(403);
+
+        $request->validate([
+            'status' => 'required|in:verified,rejected,revision_requested'
+        ]);
+
+        $snapshot = SalesSnapshot::findOrFail($id);
+        $snapshot->update([
+            'status' => $request->status,
+            'reviewed_by' => $request->user()->id
+        ]);
+
+        // Notify employee
+        if ($snapshot->employee && $snapshot->employee->user) {
+            $statusLabels = [
+                'verified' => 'diverifikasi (Benar)',
+                'rejected' => 'ditolak',
+                'revision_requested' => 'diminta revisi',
+            ];
+            $statusText = $statusLabels[$request->status] ?? $request->status;
+            $snapshot->employee->user->notify(new \App\Notifications\GeneralNotification([
+                'title' => 'Laporan Kas Diperbarui',
+                'message' => "Laporan kas tanggal " . Carbon::parse($snapshot->created_at)->format('d/m/Y') . " telah {$statusText} oleh Owner."
+            ]));
+        }
+
+        return redirect()->back()->with('message', 'Status laporan kas berhasil diperbarui.');
+    }
+}
