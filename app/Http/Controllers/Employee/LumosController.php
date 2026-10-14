@@ -20,9 +20,9 @@ class LumosController extends Controller
         }
 
         // Ambil data shift untuk unit Lumos (unit_id = 1)
-        $shifts = Shift::where('unit_id', 1)->get();
+        $shifts = Shift::where('unit_id', 1)->where('is_active', 1)->get();
 
-        // Riwayat snapshot terakhir dari pegawai ini
+        // Riwayat snapshot terakhir dari unit Lumos
         $history = SalesSnapshot::where('unit_id', 1)
             ->with(['employee.user', 'shift'])
             ->orderBy('created_at', 'desc')
@@ -37,26 +37,35 @@ class LumosController extends Controller
 
     public function storeSnapshot(Request $request)
     {
+        $user = $request->user();
+        if (!$user->employee || $user->employee->unit_id != 1) {
+            abort(403, 'Akses ditolak. Anda bukan pegawai Lumos Vape Store.');
+        }
+
         $request->validate([
-            'shift_id' => 'required|exists:work_shifts,id',
+            'shift_id' => [
+                'required',
+                \Illuminate\Validation\Rule::exists('work_shifts', 'id')->where(function ($query) {
+                    $query->where('unit_id', 1);
+                })
+            ],
             'type' => 'required|in:handover,closing',
-            'pos_total' => 'required|numeric',
-            'expected_cash' => 'required|numeric',
-            'actual_cash' => 'required|numeric',
-            'notes' => 'nullable|string',
-            'photo' => 'required|image|max:5120', // Max 5MB
+            'pos_total' => 'required|numeric|min:0',
+            'expected_cash' => 'required|numeric|min:0',
+            'actual_cash' => 'required|numeric|min:0',
+            'notes' => 'nullable|string|max:1000',
+            'photo' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120', // Max 5MB
         ]);
 
-        $user = $request->user();
         $employeeId = $user->employee->id;
         
-        // Perbaikan: Hitung selisih uang (variance) sesuai logika baru
-        $variance = $request->pos_total - ($request->expected_cash + $request->actual_cash);
+        // Variance: Selisih antara uang fisik aktual dengan uang yang seharusnya ada (expected)
+        $variance = $request->actual_cash - $request->expected_cash;
 
-        // Simpan foto bukti
+        // Simpan foto bukti ke private storage (disk local)
         $photoPath = '';
         if ($request->hasFile('photo')) {
-            $photoPath = $request->file('photo')->store('snapshots', 'public');
+            $photoPath = $request->file('photo')->store('snapshots', 'local');
         }
 
         SalesSnapshot::create([
@@ -73,6 +82,6 @@ class LumosController extends Controller
             'status' => 'submitted',
         ]);
 
-        return redirect()->back()->with('message', 'Laporan / Rekonsiliasi Kas berhasil disubmit!');
+        return redirect()->back()->with('message', 'Laporan / Rekonsiliasi Kas Lumos berhasil disubmit!');
     }
 }

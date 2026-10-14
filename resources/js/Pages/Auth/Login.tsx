@@ -1,6 +1,7 @@
 import { FormEventHandler } from 'react';
-import { useForm } from '@inertiajs/react';
+import { useForm, Head } from '@inertiajs/react';
 import GuestLayout from '@/Layouts/GuestLayout';
+import swal from '@/lib/swal';
 
 export default function Login() {
     const { data, setData, post, processing, errors } = useForm({
@@ -11,62 +12,78 @@ export default function Login() {
 
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
-        post('/login');
+        post('/login', {
+            onError: (err: any) => {
+                const msg = Object.values(err)[0] as string || 'Email atau password yang Anda masukkan salah.';
+                swal.error('Login Gagal', msg);
+            }
+        });
     };
 
     return (
-        <GuestLayout title="Log in">
-            <form onSubmit={submit}>
+        <GuestLayout title="Masuk ke Sistem">
+            <div className="mb-6 text-center">
+                <h2 className="text-xl font-bold text-gray-900">Selamat Datang</h2>
+                <p className="text-xs text-gray-500 mt-1">Masuk untuk mengakses sistem presensi dan operasional</p>
+            </div>
+
+            <form onSubmit={submit} className="space-y-4">
                 <div>
-                    <label className="block font-medium text-sm text-gray-700" htmlFor="email">Email</label>
+                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1" htmlFor="email">
+                        Alamat Email
+                    </label>
                     <input
                         id="email"
                         type="email"
                         name="email"
                         value={data.email}
-                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        className="block w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                         autoComplete="username"
+                        placeholder="nama@perusahaan.com"
                         onChange={(e) => setData('email', e.target.value)}
                         required
                     />
-                    {errors.email && <p className="text-sm text-red-600 mt-2">{errors.email}</p>}
+                    {errors.email && <p className="text-xs text-rose-600 mt-1">{errors.email}</p>}
                 </div>
 
-                <div className="mt-4">
-                    <label className="block font-medium text-sm text-gray-700" htmlFor="password">Password</label>
+                <div>
+                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1" htmlFor="password">
+                        Kata Sandi
+                    </label>
                     <input
                         id="password"
                         type="password"
                         name="password"
                         value={data.password}
-                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        className="block w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300"
                         autoComplete="current-password"
+                        placeholder="••••••••"
                         onChange={(e) => setData('password', e.target.value)}
                         required
                     />
-                    {errors.password && <p className="text-sm text-red-600 mt-2">{errors.password}</p>}
+                    {errors.password && <p className="text-xs text-rose-600 mt-1">{errors.password}</p>}
                 </div>
 
-                <div className="block mt-4">
-                    <label className="flex items-center">
+                <div className="flex items-center justify-between pt-1">
+                    <label className="flex items-center cursor-pointer">
                         <input
                             type="checkbox"
                             name="remember"
                             checked={data.remember}
                             onChange={(e) => setData('remember', e.target.checked)}
-                            className="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500"
+                            className="rounded border-gray-300 text-gray-900 shadow-sm focus:ring-indigo-500"
                         />
-                        <span className="ml-2 text-sm text-gray-600">Remember me</span>
+                        <span className="ml-2 text-xs text-gray-600 font-medium">Ingat Saya</span>
                     </label>
                 </div>
 
-                <div className="flex items-center justify-end mt-4">
+                <div className="pt-2">
                     <button
                         type="submit"
-                        className="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700 focus:bg-gray-700 active:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150 disabled:opacity-50"
+                        className="w-full bg-gray-900 hover:bg-black active:scale-[0.99] text-white font-semibold py-2.5 px-4 rounded-xl shadow transition disabled:opacity-50 text-sm"
                         disabled={processing}
                     >
-                        Log in
+                        {processing ? 'Memproses...' : 'Masuk Sekarang'}
                     </button>
                 </div>
             </form>

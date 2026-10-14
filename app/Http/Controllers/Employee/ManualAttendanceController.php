@@ -48,7 +48,7 @@ class ManualAttendanceController extends Controller
 
         $evidencePath = null;
         if ($request->hasFile('evidence')) {
-            $evidencePath = $request->file('evidence')->store('manual_attendance', 'public');
+            $evidencePath = $request->file('evidence')->store('manual_attendance', 'local');
         }
 
         ManualAttendanceRequest::create([

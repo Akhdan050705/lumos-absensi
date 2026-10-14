@@ -23,14 +23,31 @@ class ReportController extends Controller
         $startDate = Carbon::createFromDate($year, $month, 1)->startOfMonth();
         $endDate = Carbon::createFromDate($year, $month, 1)->endOfMonth();
 
-        // --- Summary Bulanan ---
+        // 1. Total Penjualan Lumos: Hanya hitung closing (kumulatif harian) agar tidak menghitung ganda dengan handover
         $lumosRevenue = SalesSnapshot::where('unit_id', 1)
+            ->where('type', 'closing')
             ->whereBetween('created_at', [$startDate, $endDate])
             ->sum('pos_total');
 
+        // Jika belum ada closing di bulan berjalan tetapi ada handover, fallback hitung dari snapshot terakhir per hari
+        if ($lumosRevenue == 0) {
+            $lumosRevenue = SalesSnapshot::where('unit_id', 1)
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->whereIn('id', function($q) use ($startDate, $endDate) {
+                    $q->selectRaw('MAX(id)')
+                      ->from('sales_snapshots')
+                      ->where('unit_id', 1)
+                      ->whereBetween('created_at', [$startDate, $endDate])
+                      ->groupByRaw('DATE(created_at)');
+                })
+                ->sum('pos_total');
+        }
+
+        // 2. Total Penjualan Luxeast (Dari Transaksi Barber)
         $luxeastRevenue = BarberTransaction::whereBetween('transaction_time', [$startDate, $endDate])
             ->sum('price_snapshot');
 
+        // 3. Total Beban Gaji (Payroll)
         $totalPayrollExpense = PayrollCalculation::whereHas('period', function($q) use ($startDate, $endDate) {
             $q->where('start_date', '>=', $startDate->format('Y-m-d'))
               ->where('end_date', '<=', $endDate->format('Y-m-d'));
@@ -94,10 +111,18 @@ class ReportController extends Controller
         if (!$request->user()->hasRole('owner')) abort(403);
 
         $request->validate([
-            'status' => 'required|in:verified,rejected,revision_requested'
+            'status' => 'required|in:verified,rejected,revision_requested,locked'
         ]);
 
         $snapshot = SalesSnapshot::findOrFail($id);
+
+        // Penegakan aturan: Laporan terkunci (locked) tidak boleh diubah lagi
+        if ($snapshot->status === 'locked') {
+            return redirect()->back()->withErrors([
+                'general' => 'Laporan kas ini berstatus locked (terkunci) dan tidak dapat dimodifikasi lagi.'
+            ]);
+        }
+
         $snapshot->update([
             'status' => $request->status,
             'reviewed_by' => $request->user()->id
@@ -109,11 +134,12 @@ class ReportController extends Controller
                 'verified' => 'diverifikasi (Benar)',
                 'rejected' => 'ditolak',
                 'revision_requested' => 'diminta revisi',
+                'locked' => 'dikunci permanen oleh Owner',
             ];
             $statusText = $statusLabels[$request->status] ?? $request->status;
             $snapshot->employee->user->notify(new \App\Notifications\GeneralNotification([
                 'title' => 'Laporan Kas Diperbarui',
-                'message' => "Laporan kas tanggal " . Carbon::parse($snapshot->created_at)->format('d/m/Y') . " telah {$statusText} oleh Owner."
+                'message' => "Laporan kas tanggal " . Carbon::parse($snapshot->created_at)->format('d/m/Y') . " telah {$statusText}."
             ]));
         }
 

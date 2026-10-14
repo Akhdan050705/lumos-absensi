@@ -41,7 +41,7 @@ class LeaveController extends Controller
 
         $attachmentPath = null;
         if ($request->hasFile('attachment')) {
-            $attachmentPath = $request->file('attachment')->store('leaves', 'public');
+            $attachmentPath = $request->file('attachment')->store('leaves', 'local');
         }
 
         LeaveRequest::create([

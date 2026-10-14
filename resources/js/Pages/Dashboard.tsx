@@ -45,15 +45,13 @@ export default function Dashboard() {
         { href: '/owner/reports', icon: 'chart', title: 'Laporan Keuangan', desc: 'Ringkasan pendapatan, beban gaji, dan estimasi laba bersih.' },
     ];
     const lumosModules: ModuleCard[] = [
-        { href: '/attendance/camera', icon: 'camera', title: 'Absen Sekarang', desc: 'Check-in atau check-out menggunakan kamera dan verifikasi lokasi GPS.' },
-        { href: '/attendance', icon: 'clock', title: 'Riwayat Kehadiran', desc: 'Lihat rekap absensi dan status kehadiran bulan berjalan.' },
+        { href: '/attendance', icon: 'camera', title: 'Presensi & Absensi', desc: 'Check-in atau check-out menggunakan kamera dan verifikasi lokasi GPS.' },
         { href: '/lumos/pos', icon: 'cash', title: 'POS & Rekonsiliasi Kas', desc: 'Submit laporan penutupan kas harian beserta foto bukti.' },
         { href: '/leave', icon: 'document', title: 'Pengajuan Cuti & Izin', desc: 'Ajukan izin sakit, absen resmi, atau cuti lainnya.' },
         { href: '/payslip', icon: 'receipt', title: 'Slip Gaji', desc: 'Lihat rincian gaji, potongan, dan take-home pay bulanan.' },
     ];
     const luxeastModules: ModuleCard[] = [
-        { href: '/attendance/camera', icon: 'camera', title: 'Absen Sekarang', desc: 'Check-in atau check-out menggunakan kamera dan verifikasi lokasi GPS.' },
-        { href: '/attendance', icon: 'clock', title: 'Riwayat Kehadiran', desc: 'Lihat rekap absensi dan status kehadiran bulan berjalan.' },
+        { href: '/attendance', icon: 'camera', title: 'Presensi & Absensi', desc: 'Check-in atau check-out menggunakan kamera dan verifikasi lokasi GPS.' },
         { href: '/luxeast/cashier', icon: 'scissors', title: 'Kasir Barbershop', desc: 'Catat transaksi layanan, pilih kapster, dan metode pembayaran.' },
         { href: '/leave', icon: 'document', title: 'Pengajuan Cuti & Izin', desc: 'Ajukan izin sakit, absen resmi, atau cuti lainnya.' },
         { href: '/payslip', icon: 'receipt', title: 'Slip Gaji & Komisi', desc: 'Lihat rincian gaji pokok, komisi bagi hasil, dan take-home pay.' },

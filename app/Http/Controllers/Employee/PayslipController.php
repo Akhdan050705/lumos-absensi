@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\PayrollCalculation;
-use App\Models\PayrollPeriod;
 
 class PayslipController extends Controller
 {
@@ -15,8 +14,11 @@ class PayslipController extends Controller
         $employee = $request->user()->employee;
         if (!$employee) abort(403, 'Akses khusus pegawai.');
 
-        // Ambil semua slip gaji pegawai ini, diurutkan terbaru
+        // Hanya tampilkan slip gaji yang telah disetujui atau dibayarkan oleh Owner (bukan draft)
         $payslips = PayrollCalculation::where('employee_id', $employee->id)
+            ->whereHas('period', function($q) {
+                $q->whereIn('status', ['approved', 'paid']);
+            })
             ->with(['period.unit', 'details'])
             ->orderByDesc('created_at')
             ->get();

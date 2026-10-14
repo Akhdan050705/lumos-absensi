@@ -52,8 +52,17 @@ class PayrollController extends Controller
             ->first();
 
         if ($existingPeriod) {
-            return redirect()->back()->withErrors(['general' => 'Payroll untuk periode ini sudah pernah dibuat.']);
+            return redirect()->back()->withErrors(['general' => 'Payroll untuk unit dan periode ini sudah pernah dibuat.']);
         }
+
+        // Ambil konfigurasi gaji pokok dari system_settings
+        $baseSalaryLumos = (float) (DB::table('system_settings')->where('setting_key', 'lumos_base_salary')->value('setting_value') ?? 2500000);
+        $baseSalaryLuxeast = (float) (DB::table('system_settings')->where('setting_key', 'luxeast_base_salary')->value('setting_value') ?? 1500000);
+        $baseSalary = ($unitId == 1) ? $baseSalaryLumos : $baseSalaryLuxeast;
+
+        // Ambil default komisi bagi hasil Luxeast dari revenue_share_rules / system_settings
+        $defaultRule = DB::table('revenue_share_rules')->where('unit_id', 2)->whereNull('employee_id')->first();
+        $defaultSharePct = $defaultRule ? (float)$defaultRule->percentage : (float)(DB::table('system_settings')->where('setting_key', 'barber_global_revenue_share')->value('setting_value') ?? 30.0);
 
         DB::beginTransaction();
         try {
@@ -78,8 +87,7 @@ class PayrollController extends Controller
                     'net_pay' => 0,
                 ]);
 
-                // 1. Gaji Pokok
-                $baseSalary = ($unitId == 1) ? 2500000 : 1500000;
+                // 1. Gaji Pokok (Berdasarkan system_settings & payroll_components)
                 $grossPay += $baseSalary;
                 PayrollDetail::create([
                     'calculation_id' => $calc->id,
@@ -88,62 +96,60 @@ class PayrollController extends Controller
                     'amount' => $baseSalary
                 ]);
 
-                // 2. Denda Keterlambatan
+                // 2. Denda Keterlambatan (Berdasarkan penalty_amount aktual di attendance_records)
                 $attendances = Attendance::where('employee_id', $emp->id)
                     ->whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
                     ->get();
                 
                 $totalLateMinutes = $attendances->sum('late_minutes');
-                if ($totalLateMinutes > 0) {
-                    $latePenalty = $totalLateMinutes * 500; // Rp 500/menit
+                $latePenalty = (float) $attendances->sum('penalty_amount');
+
+                if ($latePenalty > 0) {
                     $deductions += $latePenalty;
-                    
                     PayrollDetail::create([
                         'calculation_id' => $calc->id,
-                        'description' => "Potongan Keterlambatan ({$totalLateMinutes} menit)",
+                        'description' => "Potongan Denda Keterlambatan ({$totalLateMinutes} menit)",
                         'type' => 'deduction',
                         'amount' => $latePenalty
                     ]);
                 }
 
-                // 3. Komisi Bagi Hasil (Khusus Luxeast)
+                // 3. Komisi Bagi Hasil (Khusus Luxeast - dicek dari revenue_share_rules per pegawai)
                 if ($unitId == 2) {
+                    $empRule = DB::table('revenue_share_rules')
+                        ->where('unit_id', 2)
+                        ->where('employee_id', $emp->id)
+                        ->first();
+                    $sharePercentage = $empRule ? (float)$empRule->percentage : $defaultSharePct;
+
                     $transactions = BarberTransaction::where('employee_id', $emp->id)
                         ->whereBetween('transaction_time', [$startDate->format('Y-m-d 00:00:00'), $endDate->format('Y-m-d 23:59:59')])
                         ->get();
                     
-                    $totalRevenue = $transactions->sum('price_snapshot');
+                    $totalRevenue = (float) $transactions->sum('price_snapshot');
                     if ($totalRevenue > 0) {
-                        $revenueShare = $totalRevenue * 0.30;
+                        $revenueShare = $totalRevenue * ($sharePercentage / 100);
                         $grossPay += $revenueShare;
 
                         PayrollDetail::create([
                             'calculation_id' => $calc->id,
-                            'description' => 'Komisi Bagi Hasil (30%)',
+                            'description' => "Komisi Bagi Hasil ({$sharePercentage}%)",
                             'type' => 'earning',
                             'amount' => $revenueShare
                         ]);
                     }
                 }
 
-                $netPay = $grossPay - $deductions;
+                $netPay = max(0, $grossPay - $deductions);
                 $calc->update([
                     'gross_pay' => $grossPay,
                     'total_deductions' => $deductions,
                     'net_pay' => $netPay
                 ]);
-
-                if ($emp->user) {
-                    $monthName = $startDate->format('F Y');
-                    $emp->user->notify(new \App\Notifications\GeneralNotification([
-                        'title' => 'Slip Gaji Baru',
-                        'message' => "Slip gaji periode {$monthName} telah digenerate. Silakan cek menu Slip Gaji."
-                    ]));
-                }
             }
 
             DB::commit();
-            return redirect()->back()->with('message', 'Payroll berhasil digenerate!');
+            return redirect()->back()->with('message', 'Draft Payroll berhasil digenerate! Silakan review dan setujui untuk merilis slip gaji.');
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -164,5 +170,31 @@ class PayrollController extends Controller
         return Inertia::render('Owner/PayrollDetail', [
             'period' => $period
         ]);
+    }
+
+    public function approve(Request $request, $id)
+    {
+        if (!$request->user()->hasRole('owner')) abort(403);
+
+        $period = PayrollPeriod::with(['unit', 'calculations.employee.user'])->findOrFail($id);
+
+        if ($period->status === 'approved' || $period->status === 'paid') {
+            return redirect()->back()->withErrors(['general' => 'Payroll ini sudah disetujui sebelumnya.']);
+        }
+
+        $period->update(['status' => 'approved']);
+
+        // Rilis slip gaji & kirim notifikasi ke masing-masing pegawai
+        $monthName = Carbon::parse($period->start_date)->translatedFormat('F Y');
+        foreach ($period->calculations as $calc) {
+            if ($calc->employee && $calc->employee->user) {
+                $calc->employee->user->notify(new \App\Notifications\GeneralNotification([
+                    'title' => 'Slip Gaji Telah Disetujui',
+                    'message' => "Slip gaji periode {$monthName} telah disetujui oleh Owner dan siap diunduh di menu Slip Gaji."
+                ]));
+            }
+        }
+
+        return redirect()->back()->with('message', "Payroll periode {$monthName} berhasil disetujui dan slip gaji resmi dirilis ke pegawai!");
     }
 }

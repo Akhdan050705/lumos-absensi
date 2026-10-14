@@ -32,18 +32,15 @@ Route::middleware('auth')->group(function () {
     Route::post('/notifications/{id}/read', [\App\Http\Controllers\NotificationController::class, 'markAsRead'])->name('notifications.read');
     Route::post('/notifications/read-all', [\App\Http\Controllers\NotificationController::class, 'markAllAsRead'])->name('notifications.readAll');
 
-    // -- Owner Routes --
-    Route::middleware('role:owner')->group(function() {
-        Route::get('/owner/reports', function() {
-            return "Ini halaman laporan khusus Owner";
-        });
-    });
+    // Private Files Access
+    Route::get('/files/{path}', [\App\Http\Controllers\FileController::class, 'show'])->where('path', '.*')->name('files.show');
 
     // -- Owner Routes --
     Route::middleware('role:owner')->group(function() {
         Route::get('/owner/payroll', [\App\Http\Controllers\Owner\PayrollController::class, 'index'])->name('owner.payroll.index');
         Route::post('/owner/payroll/generate', [\App\Http\Controllers\Owner\PayrollController::class, 'generate'])->name('owner.payroll.generate');
         Route::get('/owner/payroll/{id}', [\App\Http\Controllers\Owner\PayrollController::class, 'show'])->name('owner.payroll.show');
+        Route::patch('/owner/payroll/{id}/approve', [\App\Http\Controllers\Owner\PayrollController::class, 'approve'])->name('owner.payroll.approve');
         Route::get('/owner/reports', [\App\Http\Controllers\Owner\ReportController::class, 'index'])->name('owner.reports.index');
         Route::patch('/owner/reports/snapshot/{id}/verify', [\App\Http\Controllers\Owner\ReportController::class, 'verifySnapshot'])->name('owner.reports.verify-snapshot');
         Route::get('/owner/leaves', [\App\Http\Controllers\Owner\LeaveController::class, 'index'])->name('owner.leaves.index');

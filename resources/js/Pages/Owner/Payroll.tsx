@@ -1,6 +1,7 @@
 import React from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, useForm, usePage } from '@inertiajs/react';
+import { Head, useForm } from '@inertiajs/react';
+import swal from '@/lib/swal';
 
 export default function Payroll({ units, periods }: any) {
     const { data, setData, post, processing, errors } = useForm({
@@ -9,10 +10,22 @@ export default function Payroll({ units, periods }: any) {
         year: new Date().getFullYear(),
     });
 
-    const submit = (e: React.FormEvent) => {
+    const submit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (confirm('Generate payroll untuk periode ini? Data absensi dan komisi akan dikalkulasi otomatis.')) {
-            post('/owner/payroll/generate');
+        const selectedUnit = units.find((u: any) => u.id == data.unit_id);
+        const unitName = selectedUnit ? selectedUnit.name : 'Unit';
+
+        const ok = await swal.confirm(
+            'Kalkulasi Payroll Baru?',
+            `Sistem akan mengkalkulasi gaji pokok, denda keterlambatan absensi, dan bagi hasil untuk ${unitName} periode ${months[data.month - 1]} ${data.year}.`,
+            { confirmText: 'Ya, Kalkulasi', confirmColor: '#111827' }
+        );
+
+        if (ok) {
+            post('/owner/payroll/generate', {
+                onSuccess: () => swal.toast('Draft Payroll berhasil dikalkulasi!'),
+                onError: (err: any) => swal.error('Gagal kalkulasi payroll', Object.values(err)[0] as string)
+            });
         }
     };
 
@@ -24,77 +37,85 @@ export default function Payroll({ units, periods }: any) {
     const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 
     return (
-        <AuthenticatedLayout header={<h2 className="font-semibold text-base text-gray-800">Penggajian</h2>}>
+        <AuthenticatedLayout header={<h2 className="font-semibold text-base text-gray-800">Penggajian (Payroll)</h2>}>
             <Head title="Penggajian" />
             <div className="py-8">
                 <div className="flex flex-col lg:flex-row gap-6">
 
-                    <div className="w-full lg:w-72 shrink-0">
-                        <div className="bg-white border border-gray-200 rounded-xl p-5 sticky top-20">
+                    <div className="w-full lg:w-80 shrink-0">
+                        <div className="bg-white border border-gray-200 rounded-2xl p-5 sticky top-20 shadow-sm">
                             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Generate Payroll Baru</p>
-                            {errors.general && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-sm">{errors.general}</div>}
+                            {errors.general && <div className="mb-4 bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg text-xs">{errors.general}</div>}
                             <form onSubmit={submit} className="space-y-4">
                                 <div>
-                                    <label className="block text-xs font-medium text-gray-600 mb-1">Unit Bisnis</label>
-                                    <select value={data.unit_id} onChange={e => setData('unit_id', e.target.value)} className="block w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" required>
+                                    <label className="block text-xs font-medium text-gray-700 mb-1">Unit Bisnis</label>
+                                    <select value={data.unit_id} onChange={e => setData('unit_id', e.target.value)} className="block w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" required>
                                         <option value="" disabled>Pilih unit...</option>
                                         {units.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
                                     </select>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
-                                        <label className="block text-xs font-medium text-gray-600 mb-1">Bulan</label>
-                                        <select value={data.month} onChange={e => setData('month', Number(e.target.value))} className="block w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                                        <label className="block text-xs font-medium text-gray-700 mb-1">Bulan</label>
+                                        <select value={data.month} onChange={e => setData('month', Number(e.target.value))} className="block w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300">
                                             {months.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-medium text-gray-600 mb-1">Tahun</label>
-                                        <input type="number" value={data.year} onChange={e => setData('year', Number(e.target.value))} className="block w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300" min="2020" max="2030" />
+                                        <label className="block text-xs font-medium text-gray-700 mb-1">Tahun</label>
+                                        <input type="number" value={data.year} onChange={e => setData('year', Number(e.target.value))} className="block w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-300" min="2020" max="2030" />
                                     </div>
                                 </div>
-                                <button type="submit" disabled={processing} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg transition disabled:opacity-60">
-                                    {processing ? 'Memproses...' : 'Kalkulasi Payroll'}
+                                <button type="submit" disabled={processing} className="w-full bg-gray-900 hover:bg-black text-white text-sm font-semibold py-2.5 rounded-xl transition shadow disabled:opacity-60">
+                                    {processing ? 'Mengkalkulasi...' : 'Kalkulasi Payroll'}
                                 </button>
                             </form>
                         </div>
                     </div>
 
                     <div className="flex-1">
-                        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
                             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                                 <p className="text-sm font-semibold text-gray-800">Riwayat Periode Penggajian</p>
                                 <span className="text-xs text-gray-400">{periods.length} periode</span>
                             </div>
-                            <table className="min-w-full">
-                                <thead>
-                                    <tr className="bg-gray-50 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                                        <th className="px-5 py-3 text-left">Periode</th>
-                                        <th className="px-5 py-3 text-left">Unit</th>
-                                        <th className="px-5 py-3 text-left">Tanggal</th>
-                                        <th className="px-5 py-3 text-left">Status</th>
-                                        <th className="px-5 py-3 text-left">Aksi</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-50">
-                                    {periods.map((p: any) => (
-                                        <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                                            <td className="px-5 py-4 text-sm font-semibold text-gray-800">{monthName(p.start_date)}</td>
-                                            <td className="px-5 py-4 text-sm text-gray-600">{p.unit?.name}</td>
-                                            <td className="px-5 py-4 text-xs text-gray-500 font-mono">{p.start_date.split('T')[0]} – {p.end_date.split('T')[0]}</td>
-                                            <td className="px-5 py-4">
-                                                <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-md bg-blue-50 text-blue-700 uppercase">{p.status}</span>
-                                            </td>
-                                            <td className="px-5 py-4">
-                                                <a href={`/owner/payroll/${p.id}`} className="text-sm font-medium text-indigo-600 hover:text-indigo-800 hover:underline">Lihat Detail</a>
-                                            </td>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full">
+                                    <thead>
+                                        <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                                            <th className="px-5 py-3 text-left">Periode</th>
+                                            <th className="px-5 py-3 text-left">Unit</th>
+                                            <th className="px-5 py-3 text-left">Rentang Tanggal</th>
+                                            <th className="px-5 py-3 text-left">Status</th>
+                                            <th className="px-5 py-3 text-right">Aksi</th>
                                         </tr>
-                                    ))}
-                                    {periods.length === 0 && (
-                                        <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-gray-400">Belum ada payroll yang digenerate.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {periods.map((p: any) => (
+                                            <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                                                <td className="px-5 py-4 text-sm font-semibold text-gray-900">{monthName(p.start_date)}</td>
+                                                <td className="px-5 py-4 text-sm text-gray-600">{p.unit?.name}</td>
+                                                <td className="px-5 py-4 text-xs text-gray-500 font-mono">{p.start_date.split('T')[0]} – {p.end_date.split('T')[0]}</td>
+                                                <td className="px-5 py-4">
+                                                    <span className={`inline-flex px-2.5 py-0.5 text-xs font-semibold rounded-md uppercase tracking-wider ${
+                                                        p.status === 'approved' || p.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
+                                                    }`}>
+                                                        {p.status === 'approved' ? 'Disetujui' : p.status}
+                                                    </span>
+                                                </td>
+                                                <td className="px-5 py-4 text-right">
+                                                    <a href={`/owner/payroll/${p.id}`} className="text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1.5 rounded-lg transition">
+                                                        Lihat Detail
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {periods.length === 0 && (
+                                            <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-gray-400">Belum ada payroll yang digenerate.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>

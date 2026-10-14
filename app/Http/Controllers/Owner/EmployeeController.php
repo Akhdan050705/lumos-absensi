@@ -77,11 +77,18 @@ class EmployeeController extends Controller
     {
         if (!$request->user()->hasRole('owner')) abort(403);
 
-        $employee = Employee::findOrFail($id);
+        $employee = Employee::with('user')->findOrFail($id);
         
         $newStatus = $employee->status === 'active' ? 'inactive' : 'active';
         $employee->update(['status' => $newStatus]);
 
-        return redirect()->back()->with('message', 'Status pegawai berhasil diubah menjadi ' . $newStatus);
+        if ($employee->user) {
+            $employee->user->update([
+                'is_active' => $newStatus === 'active' ? 1 : 0
+            ]);
+        }
+
+        $msg = $newStatus === 'active' ? 'diaktifkan kembali' : 'dinonaktifkan (login diblokir)';
+        return redirect()->back()->with('message', "Pegawai berhasil {$msg}.");
     }
 }

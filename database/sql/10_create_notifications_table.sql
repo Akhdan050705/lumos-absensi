@@ -1,4 +1,4 @@
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
     id CHAR(36) NOT NULL PRIMARY KEY,
     type VARCHAR(255) NOT NULL,
     notifiable_type VARCHAR(255) NOT NULL,
@@ -6,6 +6,6 @@ CREATE TABLE notifications (
     data TEXT NOT NULL,
     read_at TIMESTAMP NULL DEFAULT NULL,
     created_at TIMESTAMP NULL DEFAULT NULL,
-    updated_at TIMESTAMP NULL DEFAULT NULL
-);
-CREATE INDEX notifications_notifiable_type_notifiable_id_index ON notifications (notifiable_type, notifiable_id);
+    updated_at TIMESTAMP NULL DEFAULT NULL,
+    INDEX notifications_notifiable_type_notifiable_id_index (notifiable_type, notifiable_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

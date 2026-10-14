@@ -7,7 +7,9 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\ManualAttendanceRequest;
 use App\Models\Attendance;
+use App\Models\Shift;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class ManualAttendanceController extends Controller
 {
@@ -33,10 +35,10 @@ class ManualAttendanceController extends Controller
             'status' => 'required|in:approved,rejected'
         ]);
 
-        $correction = ManualAttendanceRequest::with('employee.user')->findOrFail($id);
+        $correction = ManualAttendanceRequest::with('employee.user', 'employee.unit')->findOrFail($id);
         
         if ($correction->status !== 'pending') {
-            return redirect()->back()->withErrors(['general' => 'Pengajuan sudah diproses sebelumnya.']);
+            return redirect()->back()->withErrors(['general' => 'Pengajuan koreksi ini sudah diproses sebelumnya.']);
         }
 
         $correction->update([
@@ -44,33 +46,54 @@ class ManualAttendanceController extends Controller
             'reviewed_by' => $request->user()->id
         ]);
 
-        // If approved, update or create Attendance record
+        // If approved, update or create Attendance record with schema-compliant columns
         if ($request->status === 'approved') {
-            $attendance = Attendance::firstOrCreate(
-                ['employee_id' => $correction->employee_id, 'date' => $correction->request_date],
-                ['status' => 'present']
-            );
+            $shift = Shift::where('unit_id', $correction->employee->unit_id)->where('is_active', 1)->first()
+                ?? Shift::where('unit_id', $correction->employee->unit_id)->first();
+
+            $attendance = Attendance::firstOrNew([
+                'employee_id' => $correction->employee_id,
+                'date' => $correction->request_date,
+            ]);
+
+            if ($shift) {
+                $attendance->shift_id = $shift->id;
+            }
+
+            $attendance->is_manual = 1;
+            $attendance->status = 'manual_approved';
+
+            $parsedRequestTime = Carbon::parse($correction->request_date . ' ' . $correction->request_time);
 
             if ($correction->type === 'in' || $correction->type === 'both') {
-                $attendance->clock_in = $correction->request_time;
+                $attendance->check_in = $parsedRequestTime;
                 
-                // Calculate late penalty (assume shift starts at 09:00 for Lumos, 10:00 for Luxeast)
-                $shiftStart = $correction->employee->unit_id == 1 ? '09:00:00' : '10:00:00';
-                $clockInTime = Carbon::parse($correction->request_date . ' ' . $correction->request_time);
-                $shiftTime = Carbon::parse($correction->request_date . ' ' . $shiftStart);
+                // Get shift start time from DB (Lumos default 09:00, Luxeast default 11:00)
+                $defaultStart = $correction->employee->unit_id == 1 ? '09:00:00' : '11:00:00';
+                $shiftStartTimeStr = $shift ? $shift->start_time : $defaultStart;
+                $shiftTime = Carbon::parse($correction->request_date . ' ' . $shiftStartTimeStr);
                 
-                if ($clockInTime->greaterThan($shiftTime)) {
-                    $attendance->late_minutes = $clockInTime->diffInMinutes($shiftTime);
+                if ($parsedRequestTime->greaterThan($shiftTime)) {
+                    $lateMinutes = (int) $shiftTime->diffInMinutes($parsedRequestTime);
+                    $attendance->late_minutes = $lateMinutes;
+
+                    // Denda berjenjang setelah toleransi 30 menit
+                    $penaltyBase = (float) (DB::table('system_settings')->where('setting_key', 'lumos_late_penalty_base')->value('setting_value') ?? 50000);
+                    if ($lateMinutes > 30) {
+                        $attendance->penalty_amount = ceil(($lateMinutes - 30) / 30) * $penaltyBase;
+                    } else {
+                        $attendance->penalty_amount = 0;
+                    }
                 } else {
                     $attendance->late_minutes = 0;
+                    $attendance->penalty_amount = 0;
                 }
             }
 
             if ($correction->type === 'out' || $correction->type === 'both') {
-                $attendance->clock_out = $correction->request_time;
+                $attendance->check_out = $parsedRequestTime;
             }
-            
-            $attendance->status = 'present';
+
             $attendance->save();
         }
 

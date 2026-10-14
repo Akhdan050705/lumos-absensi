@@ -1,79 +1,116 @@
 import React from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, usePage } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
+import swal from '@/lib/swal';
 
 export default function PayrollDetail({ period }: any) {
-    const { auth } = usePage().props as any;
-
     const monthName = new Date(period.start_date).toLocaleString('id-ID', { month: 'long', year: 'numeric' });
     const fmtStart = period.start_date.split('T')[0];
     const fmtEnd = period.end_date.split('T')[0];
 
     const totalNetPay = period.calculations.reduce((acc: number, calc: any) => acc + Number(calc.net_pay), 0);
 
+    const handleApprove = async () => {
+        const ok = await swal.confirm(
+            'Setujui & Rilis Payroll?',
+            `Anda akan menyetujui penggajian periode ${monthName} (${period.unit?.name}). Slip gaji akan resmi dirilis ke semua pegawai dan notifikasi akan dikirimkan.`,
+            { confirmText: 'Ya, Setujui & Rilis', confirmColor: '#16a34a' }
+        );
+
+        if (ok) {
+            router.patch(`/owner/payroll/${period.id}/approve`, {}, {
+                onSuccess: () => swal.toast('Payroll berhasil disetujui dan slip gaji resmi dirilis!'),
+                onError: (err: any) => swal.error('Gagal menyetujui payroll', Object.values(err)[0] as string)
+            });
+        }
+    };
+
+    const statusBadge = (status: string) => {
+        if (status === 'approved' || status === 'paid') {
+            return <span className="px-2.5 py-1 bg-green-100 text-green-800 rounded-md font-semibold text-xs uppercase tracking-wider">Disetujui / Rilis</span>;
+        }
+        return <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-md font-semibold text-xs uppercase tracking-wider">Draft / Belum Disetujui</span>;
+    };
+
     return (
-        <AuthenticatedLayout header={<h2 className="font-semibold text-xl text-gray-800 leading-tight">Detail Penggajian - {monthName}</h2>}>
+        <AuthenticatedLayout header={<h2 className="font-semibold text-base text-gray-800">Detail Penggajian — {monthName}</h2>}>
             <Head title={`Detail Payroll - ${monthName}`} />
 
-            <div className="py-12">
-                <div className="max-w-7xl mx-auto sm:px-6 lg:px-8 flex flex-col gap-6">
-                    
-                    {/* Header Info */}
-                    <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 flex justify-between items-center">
-                        <div>
-                            <h3 className="text-xl font-bold">{period.unit.name}</h3>
-                            <p className="text-gray-600 text-sm">Periode: {fmtStart} s/d {fmtEnd}</p>
-                            <p className="text-gray-600 text-sm mt-1">Status: <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded font-semibold text-xs uppercase">{period.status}</span></p>
+            <div className="py-8 space-y-6">
+                
+                {/* Header Info */}
+                <div className="bg-white border border-gray-200 rounded-2xl p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm">
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-xl font-bold text-gray-900">{period.unit.name}</h3>
+                            {statusBadge(period.status)}
                         </div>
-                        <div className="text-right">
-                            <p className="text-gray-600 text-sm">Total Pembayaran Gaji (Net)</p>
-                            <h2 className="text-3xl font-bold text-green-600">Rp {totalNetPay.toLocaleString('id-ID')}</h2>
-                        </div>
+                        <p className="text-gray-500 text-xs mt-1">Periode: {fmtStart} s/d {fmtEnd}</p>
                     </div>
 
-                    {/* Table Calculations */}
-                    <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-                        <h3 className="text-lg font-bold mb-4 border-b pb-2">Rincian Per Pegawai</h3>
-                        
-                        <div className="space-y-6">
-                            {period.calculations.map((calc: any) => (
-                                <div key={calc.id} className="border border-gray-200 rounded-lg p-4">
-                                    <div className="flex justify-between items-center mb-3">
-                                        <h4 className="text-lg font-bold text-gray-800">{calc.employee?.user?.name || `Pegawai #${calc.employee_id}`}</h4>
-                                        <div className="text-right">
-                                            <span className="text-sm text-gray-500">Take Home Pay:</span>
-                                            <span className="ml-2 text-xl font-bold text-green-600">Rp {Number(calc.net_pay).toLocaleString('id-ID')}</span>
-                                        </div>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <div className="text-left sm:text-right">
+                            <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Total Beban Gaji (Net)</p>
+                            <h2 className="text-2xl font-bold text-gray-900 mt-0.5">Rp {totalNetPay.toLocaleString('id-ID')}</h2>
+                        </div>
+
+                        {(period.status === 'draft' || period.status === 'calculated') && (
+                            <button
+                                onClick={handleApprove}
+                                className="bg-green-600 hover:bg-green-700 active:scale-95 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow transition-all flex items-center gap-1.5"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/></svg>
+                                Setujui & Rilis Slip Gaji
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Table Calculations */}
+                <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider mb-4 border-b border-gray-100 pb-3">Rincian Per Pegawai</h3>
+                    
+                    <div className="space-y-4">
+                        {period.calculations.map((calc: any) => (
+                            <div key={calc.id} className="border border-gray-200 rounded-xl p-5 hover:border-gray-300 transition-colors">
+                                <div className="flex justify-between items-center mb-3">
+                                    <div>
+                                        <h4 className="text-base font-bold text-gray-900">{calc.employee?.user?.name || `Pegawai #${calc.employee_id}`}</h4>
+                                        <p className="text-xs text-gray-400">Kode: {calc.employee?.employee_code || '-'}</p>
                                     </div>
-                                    
-                                    <div className="bg-gray-50 rounded p-3">
-                                        <h5 className="text-xs font-bold text-gray-500 uppercase mb-2">Komponen Gaji</h5>
-                                        <ul className="space-y-1">
-                                            {calc.details.map((detail: any) => (
-                                                <li key={detail.id} className="flex justify-between text-sm">
-                                                    <span>{detail.description}</span>
-                                                    <span className={detail.type === 'earning' ? 'text-blue-600' : 'text-red-600'}>
-                                                        {detail.type === 'earning' ? '+' : '-'} Rp {Number(detail.amount).toLocaleString('id-ID')}
-                                                    </span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                    
-                                    <div className="mt-3 text-sm flex gap-4">
-                                        <div><span className="text-gray-500">Gross Pay:</span> <span className="font-semibold">Rp {Number(calc.gross_pay).toLocaleString('id-ID')}</span></div>
-                                        <div><span className="text-gray-500">Total Potongan:</span> <span className="font-semibold text-red-600">Rp {Number(calc.total_deductions).toLocaleString('id-ID')}</span></div>
+                                    <div className="text-right">
+                                        <span className="text-xs text-gray-400 font-medium">Take Home Pay:</span>
+                                        <span className="ml-2 text-lg font-bold text-green-700">Rp {Number(calc.net_pay).toLocaleString('id-ID')}</span>
                                     </div>
                                 </div>
-                            ))}
+                                
+                                <div className="bg-gray-50 rounded-lg p-3.5 border border-gray-100">
+                                    <h5 className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Komponen Rincian</h5>
+                                    <ul className="space-y-1.5">
+                                        {calc.details.map((detail: any) => (
+                                            <li key={detail.id} className="flex justify-between text-xs font-medium">
+                                                <span className="text-gray-700">{detail.description}</span>
+                                                <span className={detail.type === 'earning' ? 'text-blue-700 font-semibold' : 'text-red-600 font-semibold'}>
+                                                    {detail.type === 'earning' ? '+' : '-'} Rp {Number(detail.amount).toLocaleString('id-ID')}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                                
+                                <div className="mt-3 text-xs flex gap-6 text-gray-600 border-t border-gray-100 pt-2.5">
+                                    <div>Gross Pay: <span className="font-semibold text-gray-900">Rp {Number(calc.gross_pay).toLocaleString('id-ID')}</span></div>
+                                    <div>Total Potongan: <span className="font-semibold text-red-600">Rp {Number(calc.total_deductions).toLocaleString('id-ID')}</span></div>
+                                </div>
+                            </div>
+                        ))}
 
-                            {period.calculations.length === 0 && (
-                                <div className="text-center text-gray-500 py-4">Belum ada data perhitungan pegawai.</div>
-                            )}
-                        </div>
+                        {period.calculations.length === 0 && (
+                            <div className="text-center text-gray-400 py-8 text-sm">Belum ada rincian data pegawai.</div>
+                        )}
                     </div>
-
                 </div>
+
             </div>
         </AuthenticatedLayout>
     );

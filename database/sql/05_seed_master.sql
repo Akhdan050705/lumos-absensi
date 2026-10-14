@@ -49,7 +49,21 @@ INSERT INTO system_settings (setting_key, setting_value, description) VALUES
 ('face_match_threshold', '0.6', 'Batas maksimal Cosine Distance (0-1). Semakin kecil semakin ketat.'),
 ('liveness_enabled', 'true', 'Mengaktifkan Active Challenge Liveness (Menoleh/Berkedip)'),
 ('lumos_late_penalty_base', '50000', 'Nominal denda per kelipatan 30 menit (setelah toleransi 30 menit)'),
-('barber_global_revenue_share', '30', 'Persentase bagi hasil default untuk Luxeast (jika aturan spesifik kosong)')
+('barber_global_revenue_share', '30', 'Persentase bagi hasil default untuk Luxeast (jika aturan spesifik kosong)'),
+('lumos_base_salary', '2500000', 'Gaji Pokok standar Lumos Vape Store'),
+('luxeast_base_salary', '1500000', 'Gaji Pokok standar Luxeast Barbershop')
 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), description = VALUES(description);
+
+INSERT INTO revenue_share_rules (id, unit_id, service_id, employee_id, percentage) VALUES
+(1, 2, NULL, NULL, 30.00)
+ON DUPLICATE KEY UPDATE unit_id = VALUES(unit_id), percentage = VALUES(percentage);
+
+INSERT INTO payroll_components (id, unit_id, name, type, is_default, is_active) VALUES
+(1, 1, 'Gaji Pokok', 'earning', 1, 1),
+(2, 1, 'Potongan Keterlambatan', 'deduction', 1, 1),
+(3, 2, 'Gaji Pokok', 'earning', 1, 1),
+(4, 2, 'Potongan Keterlambatan', 'deduction', 1, 1),
+(5, 2, 'Komisi Bagi Hasil', 'earning', 1, 1)
+ON DUPLICATE KEY UPDATE unit_id = VALUES(unit_id), name = VALUES(name), type = VALUES(type);
 
 SET FOREIGN_KEY_CHECKS = 1;
